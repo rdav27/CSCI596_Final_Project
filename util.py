@@ -8,6 +8,7 @@ import numpy as np
 import cv2
 
 
+# Transforming the output
 def predict_transform(prediction, inp_dim, anchors, num_classes, CUDA):
     batch_size = prediction.size(0)
     stride = inp_dim // prediction.size(2)
@@ -21,7 +22,7 @@ def predict_transform(prediction, inp_dim, anchors, num_classes, CUDA):
 
     anchors = [(a[0] / stride, a[1] / stride) for a in anchors]
 
-    # Sigmoid the  centre_X, centre_Y. and object confidence
+    # Sigmoid the centre_X, centre_Y. and object confidence
     prediction[:, :, 0] = torch.sigmoid(prediction[:, :, 0])
     prediction[:, :, 1] = torch.sigmoid(prediction[:, :, 1])
     prediction[:, :, 4] = torch.sigmoid(prediction[:, :, 4])
@@ -33,9 +34,9 @@ def predict_transform(prediction, inp_dim, anchors, num_classes, CUDA):
     x_offset = torch.FloatTensor(a).view(-1, 1)
     y_offset = torch.FloatTensor(b).view(-1, 1)
 
-    # if CUDA:
-    #     x_offset = x_offset.cuda()
-    #     y_offset = y_offset.cuda()
+    if CUDA:
+        x_offset = x_offset.cuda()
+        y_offset = y_offset.cuda()
 
     x_y_offset = torch.cat((x_offset, y_offset), 1).repeat(1, num_anchors).view(-1, 2).unsqueeze(0)
 
@@ -55,6 +56,7 @@ def predict_transform(prediction, inp_dim, anchors, num_classes, CUDA):
     return prediction
 
 
+# get the classes detected in an image
 def unique(tensor):
     tensor_np = tensor.cpu().numpy()
     unique_np = np.unique(tensor_np)
@@ -65,7 +67,7 @@ def unique(tensor):
     return tensor_res
 
 
-# Returns the IoU of two bounding boxes
+# Calculating the IoU
 def bbox_iou(box1, box2):
     # Get the coordinates of bounding boxes
     b1_x1, b1_y1, b1_x2, b1_y2 = box1[:, 0], box1[:, 1], box1[:, 2], box1[:, 3]
@@ -78,8 +80,7 @@ def bbox_iou(box1, box2):
     inter_rect_y2 = torch.min(b1_y2, b2_y2)
 
     # Intersection area
-    inter_area = torch.clamp(inter_rect_x2 - inter_rect_x1 + 1, min=0) * torch.clamp(inter_rect_y2 - inter_rect_y1 + 1,
-                                                                                     min=0)
+    inter_area = torch.clamp(inter_rect_x2 - inter_rect_x1 + 1, min=0) * torch.clamp(inter_rect_y2 - inter_rect_y1 + 1,min=0)
     # Union Area
     b1_area = (b1_x2 - b1_x1 + 1) * (b1_y2 - b1_y1 + 1)
     b2_area = (b2_x2 - b2_x1 + 1) * (b2_y2 - b2_y1 + 1)
@@ -89,10 +90,41 @@ def bbox_iou(box1, box2):
     return iou
 
 
+# returns a dictionary which maps the index of every class to a string of it's name
+def load_classes(namesfile):
+    fp = open(namesfile, "r")
+    names = fp.read().split("\n")[:-1]
+    return names
+
+
+# Resize image with unchanged aspect ratio using padding
+def letterbox_image(img, inp_dim):
+    img_w, img_h = img.shape[1], img.shape[0]
+    w, h = inp_dim
+    new_w = int(img_w * min(w / img_w, h / img_h))
+    new_h = int(img_h * min(w / img_w, h / img_h))
+    resized_image = cv2.resize(img, (new_w, new_h), interpolation=cv2.INTER_CUBIC)
+
+    canvas = np.full((inp_dim[1], inp_dim[0], 3), 128)
+    canvas[(h - new_h) // 2:(h - new_h) // 2 + new_h, (w - new_w) // 2:(w - new_w) // 2 + new_w, :] = resized_image
+
+    return canvas
+
+
+# Prepare image for inputting to the neural network.
+def prep_image(img, inp_dim):
+    img = cv2.resize(img, (inp_dim, inp_dim))
+    img = img[:, :, ::-1].transpose((2, 0, 1)).copy()
+    img = torch.from_numpy(img).float().div(255.0).unsqueeze(0)
+    return img
+
+
 def write_results(prediction, confidence, num_classes, nms_conf=0.4):
+    # Object confidence thresholding
     conf_mask = (prediction[:, :, 4] > confidence).float().unsqueeze(2)
     prediction = prediction * conf_mask
 
+    # Perform non-maximum suppression
     box_corner = prediction.new(prediction.shape)
     box_corner[:, :, 0] = (prediction[:, :, 0] - prediction[:, :, 2] / 2)
     box_corner[:, :, 1] = (prediction[:, :, 1] - prediction[:, :, 3] / 2)
@@ -128,17 +160,17 @@ def write_results(prediction, confidence, num_classes, nms_conf=0.4):
         img_classes = unique(image_pred_[:, -1])  # -1 index holds the class index
 
         for cls in img_classes:
-            # get the detections with one particular class
+            # Get the detections with one particular class
             cls_mask = image_pred_ * (image_pred_[:, -1] == cls).float().unsqueeze(1)
             class_mask_ind = torch.nonzero(cls_mask[:, -2]).squeeze()
             image_pred_class = image_pred_[class_mask_ind].view(-1, 7)
 
-            # sort the detections such that the entry with the maximum objectiveness confidence is at the top
+            # Sort the detections such that the entry with the maximum objectiveness confidence is at the top
             conf_sort_index = torch.sort(image_pred_class[:, 4], descending=True)[1]
             image_pred_class = image_pred_class[conf_sort_index]
             idx = image_pred_class.size(0)  # Number of detections
 
-            # perform NMS
+            # Perform non-maximum suppression
             for i in range(idx):
                 # Get the IOUs of all boxes that come after the one we are looking at
                 # in the loop
@@ -158,6 +190,7 @@ def write_results(prediction, confidence, num_classes, nms_conf=0.4):
                 non_zero_ind = torch.nonzero(image_pred_class[:, 4]).squeeze()
                 image_pred_class = image_pred_class[non_zero_ind].view(-1, 7)
 
+            # Writing the predictions
             batch_ind = image_pred_class.new(image_pred_class.size(0), 1).fill_(ind)
             seq = batch_ind, image_pred_class  # Repeat the batch_id for as many detections of the class cls in the image
 
@@ -167,7 +200,6 @@ def write_results(prediction, confidence, num_classes, nms_conf=0.4):
             else:
                 out = torch.cat(seq, 1)
                 output = torch.cat((output, out))
-
         try:
             return output
         except:

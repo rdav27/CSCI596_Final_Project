@@ -9,16 +9,6 @@ import cv2
 from util import *
 
 
-def get_test_input():
-    img = cv2.imread("dog-cycle-car.png")
-    img = cv2.resize(img, (608, 608))  # Resize to the input dimension
-    img_ = img[:, :, ::-1].transpose((2, 0, 1))  # BGR -> RGB | H X W C -> C X H X W
-    img_ = img_[np.newaxis, :, :, :] / 255.0  # Add a channel at 0 (for batch) | Normalise
-    img_ = torch.from_numpy(img_).float()  # Convert to float
-    img_ = Variable(img_)  # Convert to Variable
-    return img_
-
-
 class EmptyLayer(nn.Module):
     def __init__(self):
         super(EmptyLayer, self).__init__()
@@ -30,13 +20,8 @@ class DetectionLayer(nn.Module):
         self.anchors = anchors
 
 
+# Parsing the configuration file
 def parse_cfg(cfgfile):
-    """
-    Takes a configuration file
-
-    Returns a list of blocks. Each block describes a block in the neural
-    network to be built. Block is represented as a dictionary in the list
-    """
     file = open(cfgfile, 'r')
     lines = file.read().split('\n')  # store the lines in a list
     lines = [x for x in lines if len(x) > 0]  # get rid of the empty lines
@@ -59,19 +44,15 @@ def parse_cfg(cfgfile):
     return blocks
 
 
+# Use the list returned by parse_cfg to construct PyTorch modules for the blocks present in the configuration file
 def create_modules(blocks):
-    net_info = blocks[0]  # Capture the information about the input and pre-processing
+    net_info = blocks[0]
     module_list = nn.ModuleList()
     prev_filters = 3
     output_filters = []
 
     for index, x in enumerate(blocks[1:]):
         module = nn.Sequential()
-
-        # check the type of block
-        # create a new module for the block
-        # append to module_list
-
         if x["type"] == "convolutional":
             # Get the info about the layer
             activation = x["activation"]
@@ -102,26 +83,22 @@ def create_modules(blocks):
                 module.add_module("batch_norm_{0}".format(index), bn)
 
             # Check the activation.
-            # It is either Linear or a Leaky ReLU for YOLO
             if activation == "leaky":
                 activn = nn.LeakyReLU(0.1, inplace=True)
                 module.add_module("leaky_{0}".format(index), activn)
-        # We use Bilinear2dUpsampling if it's an upsampling layer
         elif x["type"] == "upsample":
             stride = int(x["stride"])
             upsample = nn.Upsample(scale_factor=2, mode="bilinear")
             module.add_module("upsample_{}".format(index), upsample)
-        # If it is a route layer
         elif x["type"] == "route":
             x["layers"] = x["layers"].split(',')
-            # Start  of a route
+
             start = int(x["layers"][0])
-            # end, if there exists one.
+
             try:
                 end = int(x["layers"][1])
             except:
                 end = 0
-            # Positive annotation
             if start > 0:
                 start = start - index
             if end > 0:
@@ -132,7 +109,6 @@ def create_modules(blocks):
                 filters = output_filters[index + start] + output_filters[index + end]
             else:
                 filters = output_filters[index + start]
-        # shortcut corresponds to skip connection
         elif x["type"] == "shortcut":
             shortcut = EmptyLayer()
             module.add_module("shortcut_{}".format(index), shortcut)
@@ -154,9 +130,7 @@ def create_modules(blocks):
     return net_info, module_list
 
 
-# blocks = parse_cfg("cfg/yolov3.cfg")
-# print(create_modules(blocks))
-
+# Defining the network
 class DarkNet(nn.Module):
     def __init__(self, cfgfile):
         super(DarkNet, self).__init__()
@@ -165,11 +139,12 @@ class DarkNet(nn.Module):
         self.header = torch.IntTensor([0, 0, 0, 0])
         self.seen = 0
 
+    # Implementing the forward pass of the network
     def forward(self, x, CUDA):
         modules = self.blocks[1:]
-        outputs = {}  # we cache the outputs for the route layer
+        outputs = {}  # cache the outputs for the route layer
 
-        write = 0
+        write = 0  # indicates the first detection happened or not
         for i, module in enumerate(modules):
             module_type = (module["type"])
             if module_type == "convolutional" or module_type == "upsample":
@@ -196,7 +171,6 @@ class DarkNet(nn.Module):
                 from_ = int(module["from"])
                 x = outputs[i - 1] + outputs[i + from_]
             elif module_type == 'yolo':
-
                 anchors = self.module_list[i][0].anchors
                 inp_dim = int(self.net_info["height"])  # Get the input dimensions
                 num_classes = int(module["classes"])  # Get the number of classes
@@ -204,11 +178,13 @@ class DarkNet(nn.Module):
                 # Transform
                 x = x.data
                 x = predict_transform(x, inp_dim, anchors, num_classes, CUDA)
-                if not write:  # if no collector has been initialized.
+                if not write:
+                    # collector hasn't been initialized
                     detections = x
                     write = 1
 
                 else:
+                    # collector has been initialized, and we can concatenate our decision maps to it
                     detections = torch.cat((detections, x), 1)
 
             outputs[i] = x
@@ -217,11 +193,6 @@ class DarkNet(nn.Module):
     def load_weights(self, weightfile):
         fp = open(weightfile, "rb")  # Open the weight file
 
-        # The first 5 values are header information
-        # 1. Major version number
-        # 2. Minor Version Number
-        # 3. Subversion number
-        # 4,5. Images seen by the network (during training)
         header = np.fromfile(fp, dtype=np.int32, count=5)
         self.header = torch.from_numpy(header)
         self.seen = self.header[3]
@@ -232,8 +203,7 @@ class DarkNet(nn.Module):
         for i in range(len(self.module_list)):
             module_type = self.blocks[i+1]["type"]
 
-            # If module_type is convolutional load weights
-            # Otherwise ignore.
+            # If module_type is convolutional load weights, otherwise ignore
             if module_type == "convolutional":
                 model = self.module_list[i]
                 try:
@@ -251,13 +221,10 @@ class DarkNet(nn.Module):
                     # Load the weights
                     bn_biases = torch.from_numpy(weights[ptr:ptr + num_bn_biases])
                     ptr += num_bn_biases
-
                     bn_weights = torch.from_numpy(weights[ptr: ptr + num_bn_biases])
                     ptr += num_bn_biases
-
                     bn_running_mean = torch.from_numpy(weights[ptr: ptr + num_bn_biases])
                     ptr += num_bn_biases
-
                     bn_running_var = torch.from_numpy(weights[ptr: ptr + num_bn_biases])
                     ptr += num_bn_biases
 
@@ -278,9 +245,7 @@ class DarkNet(nn.Module):
                     # Load the weights
                     conv_biases = torch.from_numpy(weights[ptr: ptr + num_biases])
                     ptr = ptr + num_biases
-
                     conv_biases = conv_biases.view_as(conv.bias.data)  # reshape the loaded weights according to the dims of the model weights
-
                     conv.bias.data.copy_(conv_biases)  # Finally copy the data
 
                 num_weights = conv.weight.numel()  # Load the weights for the Convolutional layers
@@ -291,10 +256,3 @@ class DarkNet(nn.Module):
 
                 conv_weights = conv_weights.view_as(conv.weight.data)
                 conv.weight.data.copy_(conv_weights)
-
-
-model = DarkNet("cfg/yolov3.cfg")
-model.load_weights("yolov3.weights")
-inp = get_test_input()
-pred = model(inp, torch.cuda.is_available())
-print(pred)
