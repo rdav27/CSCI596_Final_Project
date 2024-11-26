@@ -4,13 +4,11 @@ Implementation of a rea-time image object detector YOLO that supports parallel c
 
 ## Team Members
 
----
 * Tianyue Fan
 * Linhua Chen
 
 ## Dependencies
 
----
 1. Python 3.5 and above
 2. PyTorch 0.4 and above
 3. OpenCV
@@ -38,11 +36,7 @@ Other optional arguments includes:
 
 ## Detection Result Examples
 
----
-
 ## How Does the Detector Work
-
----
 
 ## Acknowledgments
 
