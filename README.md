@@ -42,11 +42,20 @@ Other optional arguments includes:
 
 ### 2. Bounding Box Predictions
 
+For each box, YOLO calculates 3 things:
+1. Coordinates
+2. Width and height
+3. Confidence score
+
 ![part2](img/part2.jpg)
 
 ### 3. Class Probabilities
 
 ### 4. Non-Maximum Suppression (NMS)
+
+NMS works in 2 parts:
+1. Sorting all bounding boxes by their confidence scores.
+2. Removing boxes with high overlap, measured by Intersection over Union (IoU)
 
 ![part1](img/part3.jpg)
 
