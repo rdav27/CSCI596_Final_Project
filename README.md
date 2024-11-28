@@ -1,6 +1,6 @@
 # CSCI596 Final Project
 
-Implementation of a rea-time image object detector YOLO that supports parallel computing(CUDA) using PyTorch and OpenCV.
+Implementation of a rea-time image object detector [YOLO](https://pjreddie.com/media/files/papers/YOLOv3.pdf) that supports parallel computing(CUDA) using PyTorch and OpenCV.
 
 ## Team Members
 
@@ -18,7 +18,7 @@ Implementation of a rea-time image object detector YOLO that supports parallel c
 
 If your machine has CUDA enabled, the model will run on the GPU, which will be much faster than using CPU to make detections.
 ```
-python detector.py --images <directory containing images> --det <directory to store detection results>
+python detector.py --images <path to the image> --det <directory to store detection results>
 ```
 Other optional arguments includes:
 
@@ -26,19 +26,44 @@ Other optional arguments includes:
 
 `--confidence` defines the object confidence to filter predictions, default is 0.5
 
-`--nms_thresh` defines the NMS threshold, default is 0.4
+`--nms_thresh` defines the non-maximum suppression threshold, default is 0.4
 
-`--cfg` defines the location of the configuration file, default is `cfg/yolov3.cfg`
+`--cfg` defines the path to the configuration file, default is `cfg/yolov3.cfg`
 
-`--weights` defines the location of the weights file, default is `yolov3.weights`
+`--weights` defines the path to the weights file, default is `yolov3.weights`
 
 `--reso` defines the input resolution of the model, default is 416
 
-## Detection Result Examples
-
 ## How Does the Detector Work
 
-## Acknowledgments
+### 1. Image Division into Grids
 
-* [The paper of YOLOv3](https://pjreddie.com/media/files/papers/YOLOv3.pdf)
-* [Official code of YOLOv3](https://github.com/pjreddie/darknet)
+![part1](img/part1.jpg)
+
+### 2. Bounding Box Predictions
+
+![part2](img/part2.jpg)
+
+### 3. Class Probabilities
+
+### 4. Non-Maximum Suppression (NMS)
+
+![part1](img/part3.jpg)
+
+## Detection Result Examples
+
+![cat](det/det_cat.jpg)
+
+![boat_aeroplane](det/det_boat-aeroplane.jpg)
+
+![train-trafficlight](det/det_train-trafficlight.jpg)
+
+![person-car](det/det_person-car.jpg)
+
+![cow-horse](det/det_cow-horse.jpg)
+
+![bird_zebra](det/det_bird-zebra.jpg)
+
+![person-bicycle](det/det_person-bicycle.jpg)
+
+![tennis-person](det/det_tennis-person.jpg)
